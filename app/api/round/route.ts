@@ -11,32 +11,35 @@ type CarWithImages = {
 export async function GET() {
     const supabase = createSupabaseClient();
 
-    const { data, error } = await supabase
-    .from("cars")
-    .select(`id, car_images!inner(storage_path)`)
+    const { data: images, error: imagesError } = await supabase
+    .from("car_images")
+    .select(`id`)
     .eq("active", true)
-    .eq("car_images.active", true);
 
-    if (error) {
-        console.error("Error fetching cars:", error);
+    if (imagesError) {
+        console.error("Error fetching cars:", imagesError);
         return NextResponse.json({ error: "Failed to fetch cars" }, { status: 500 });
     }
 
 
-    const cars = data as CarWithImages[];
+    if (!images || images.length === 0) {
+        return NextResponse.json({ error: "No cars found" }, { status: 404 });
+    }
 
-    if (cars.length === 0) {
-        return NextResponse.json({ error: "No active cars found" }, { status: 404 });
+    const randomImage = images[Math.floor(Math.random() * images.length)];
+
+    const { data: round, error: roundError } = await supabase
+        .from("game_rounds")
+        .insert({ car_image_id: randomImage.id })
+        .select("id")
+        .single();
+
+    if (roundError || !round) {
+        console.error("Error creating game round:", roundError);
+        return NextResponse.json({ error: "Failed to create game round" }, { status: 500 });
     }
 
 
-    const car = cars[Math.floor(Math.random() * cars.length)];
 
-    const image = car.car_images[Math.floor(Math.random() * car.car_images.length)];
-
-    const {
-        data: { publicUrl },
-    } = supabase.storage.from("car-images").getPublicUrl(image.storage_path);
-
-    return NextResponse.json({ roundId: car.id, imageUrl: publicUrl });
+    return NextResponse.json({ roundId: round.id, imageUrl: `/api/image?id=${round.id}` });
 }
