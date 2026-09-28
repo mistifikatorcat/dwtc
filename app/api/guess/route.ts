@@ -44,6 +44,8 @@ export async function POST(request: Request) {
         );
     }
 
+    const game_id = round.game_id;
+
     if (round.result !== null) {
         return NextResponse.json(
             { error: "ROUND_FINISHED" },
@@ -132,7 +134,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
             correct: false,
-            result: "TIMEOUT",
+            result: "timeout",
             scoreMultiplier: 0,
             feedback: "Too late! The round has expired.",
             answer,
@@ -220,12 +222,99 @@ export async function POST(request: Request) {
                 { status: 409 }
             );
         }
+    
+    const { data: game, error: gameError } = await supabase
+        .from("game_sessions")
+        .select("id, total_rounds")
+        .eq("id", game_id)
+        .single();
 
-        return NextResponse.json({
-            correct,
-            result,
-            scoreMultiplier,
-            feedback,
-            answer,
-        });
+    if (gameError || !game) {
+        console.error("Failed to load game:", gameError);
+        return NextResponse.json(
+            { error: "FAILED_TO_LOAD_GAME" },
+            { status: 500 }
+        );
+    } 
+
+    const { count: completedCount, error: countError } = await supabase
+        .from("game_rounds")
+        .select("id", { count: "exact", head: true })
+        .eq("game_id", game_id)
+        .not("result", "is", null);
+        
+    
+        let gameFinished = false;
+
+        if (countError && completedCount !== null && !completedCount >= game.total_rounds) {
+         const { error: finishError } = await supabase
+            .from("game_sessions")
+            .update({ status: "finished", finished_at: new Date().toISOString() })
+            .eq("id", game_id)
+            .eq("status", "active");
+
+          const { data: game, error: gameError } = await supabase
+  .from("game_sessions")
+  .select("id, total_rounds")
+  .eq("id", game_id)
+  .single();
+
+if (gameError || !game) {
+  console.error("Failed to load game:", gameError);
+
+  return NextResponse.json(
+    { error: "FAILED_TO_LOAD_GAME" },
+    { status: 500 }
+  );
+}
+
+const { count: completedCount, error: countError } = await supabase
+  .from("game_rounds")
+  .select("id", { count: "exact", head: true })
+  .eq("game_id", game_id)
+  .not("result", "is", null);
+
+if (countError) {
+  console.error("Failed to count completed rounds:", countError);
+
+  return NextResponse.json(
+    { error: "FAILED_TO_COUNT_ROUNDS" },
+    { status: 500 }
+  );
+}
+
+const completedRounds = completedCount ?? 0;
+
+let gameFinished = false;
+
+if (completedRounds >= game.total_rounds) {
+  const { error: finishError } = await supabase
+    .from("game_sessions")
+    .update({
+      status: "finished",
+      finished_at: new Date().toISOString(),
+    })
+    .eq("id", game_id)
+    .eq("status", "active");
+
+  if (finishError) {
+    console.error("Failed to finish game:", finishError);
+
+    return NextResponse.json(
+      { error: "FAILED_TO_FINISH_GAME" },
+      { status: 500 }
+    );
+  }
+
+  gameFinished = true;
+}
+
+return NextResponse.json({
+  correct,
+  result,
+  scoreMultiplier,
+  feedback,
+  answer,
+  gameFinished,
+});}
 }
